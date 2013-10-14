@@ -1,0 +1,17 @@
+application: gfw-ee-tiles
+version: 1
+runtime: python27
+api_version: 1
+threadsafe: true
+
+handlers:
+- url: /.*
+  script: ee-appengine.app
+- url: /oauth2callback
+  script: oauth2client.appengine.application
+
+libraries:
+- name: jinja2
+  version: "2.6"
+- name: webapp2
+  version: "2.3"
