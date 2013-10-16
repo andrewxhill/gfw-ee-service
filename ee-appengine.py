@@ -119,15 +119,8 @@ class KeysGFW(webapp2.RequestHandler):
         # TODO add better error code control
         self.error(500)
       else:
-        
-          result = urlfetch.fetch(url="https://earthengine.googleapis.com/map/%s/%s/%s/%s?token=%s" % (mapid['mapid'], z, x, y, mapid['token']))
-          if result.status_code == 200:
-            memcache.set("%s-tile-%s-%s-%s" % (m,z,x,y),result.content,90000)
-            self.response.headers["Content-Type"] = "image/png"
-            self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
-            self.response.out.write(result.content)
-          else:
-            self.response.set_status(result.status_code)
+        self.response.header['Content-Type'] = 'application/json'
+        self.response.out.write(json.dumps(['key', mapid]))
 
 
 app = webapp2.WSGIApplication([ 
