@@ -8,6 +8,7 @@ import ee
 import webapp2
 import jinja2
 import httplib2
+import json
 from oauth2client.appengine import AppAssertionCredentials
 from google.appengine.api import memcache
 import urllib
@@ -111,7 +112,7 @@ class TilesGFW(webapp2.RequestHandler):
 
 
 class KeysGFW(webapp2.RequestHandler):
-    def get(self, m, z, x, y):
+    def get(self, m):
 
       mapid = MapInit(m.lower()).mapid
 
@@ -119,8 +120,11 @@ class KeysGFW(webapp2.RequestHandler):
         # TODO add better error code control
         self.error(500)
       else:
-        self.response.header['Content-Type'] = 'application/json'
-        self.response.out.write(json.dumps(['key', mapid]))
+        self.response.headers['Content-Type'] = 'application/json'
+        self.response.out.write(json.dumps({
+            'mapid' : mapid['mapid'],
+            'token' : mapid['token']
+          }))
 
 
 app = webapp2.WSGIApplication([ 
