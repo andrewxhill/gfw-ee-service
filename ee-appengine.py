@@ -42,7 +42,7 @@ class MainPage(webapp2.RequestHandler):
 class MapInit():
   def __init__(self,reqid):
       self.mapid = memcache.get(reqid)
-      cache_time = 60*60*96
+      cache_time = 2
       if self.mapid is None:
         ee.Initialize(credentials, EE_URL)
         if reqid == 'l7_toa_1year_2012':
@@ -58,7 +58,7 @@ class MapInit():
           elev = ee.Image('srtm90_v4')
           mask2 = elev.gt(0).add(treeHeight.mask())
           water = ee.Image("MOD44W/MOD44W_005_2000_02_24").select(["water_mask"]).eq(0)
-          self.mapid = treeHeight.mask(mask2).mask(water).getMapId({'opacity': 0.98, 'min':0, 'max':50, 'palette':"dddddd,1b9567,333333"});
+          self.mapid = treeHeight.mask(mask2).mask(water).getMapId({'opacity': 1, 'min':0, 'max':50, 'palette':"dddddd,1b9567,333333"});
           
 
         if reqid == 'simple_bw_coverage':
@@ -67,7 +67,7 @@ class MapInit():
           treeHeight = ee.Image("Simard_Pinto_3DGlobalVeg_JGR")
           elev = ee.Image('srtm90_v4')
           mask2 = elev.gt(0).add(treeHeight.mask())
-          self.mapid = treeHeight.mask(mask2).getMapId({'opacity': 0.98, 'min':0, 'max':50, 'palette':"ffffff,777777,000000"});
+          self.mapid = treeHeight.mask(mask2).getMapId({'opacity': 1, 'min':0, 'max':50, 'palette':"ffffff,777777,000000"});
         
         memcache.set(reqid,self.mapid,cache_time)
         # elif reqid == 'dark_tree_height':
@@ -82,6 +82,7 @@ class MapInit():
 
 
 
+# Depricated method, GFW will move to KeysGFW and not deliver tiles from the proxy directly
 class TilesGFW(webapp2.RequestHandler):
     def get(self, m, z, x, y):
 
@@ -109,6 +110,31 @@ class TilesGFW(webapp2.RequestHandler):
           self.response.out.write(cached_image)
 
 
-app = webapp2.WSGIApplication([ ('/', MainPage), ('/gfw/([^/]+)/([^/]+)/([^/]+)/([^/]+).png', TilesGFW) ], debug=True)
+class KeysGFW(webapp2.RequestHandler):
+    def get(self, m, z, x, y):
+
+      mapid = MapInit(m.lower()).mapid
+
+      if mapid is None:
+        # TODO add better error code control
+        self.error(500)
+      else:
+        
+          result = urlfetch.fetch(url="https://earthengine.googleapis.com/map/%s/%s/%s/%s?token=%s" % (mapid['mapid'], z, x, y, mapid['token']))
+          if result.status_code == 200:
+            memcache.set("%s-tile-%s-%s-%s" % (m,z,x,y),result.content,90000)
+            self.response.headers["Content-Type"] = "image/png"
+            self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
+            self.response.out.write(result.content)
+          else:
+            self.response.set_status(result.status_code)
+
+
+app = webapp2.WSGIApplication([ 
+    ('/', MainPage), 
+    ('/gfw/([^/]+)/([^/]+)/([^/]+)/([^/]+).png', TilesGFW), 
+    ('/gfw/([^/]+)', KeysGFW)
+
+  ], debug=True)
 
 
