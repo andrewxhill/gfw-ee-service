@@ -41,17 +41,32 @@ class MainPage(webapp2.RequestHandler):
 
 
 class MapInit():
-  def __init__(self,reqid):
-      self.mapid = memcache.get(reqid)
+  def __init__(self,reqid, request):
+
+      if reqid == 'landsat_composites':
+        year = request.get("year")
+        self.mapid = memcache.get(reqid + year)
+      else:
+        self.mapid = memcache.get(reqid)
+
       cache_time = 2
       if self.mapid is None:
         ee.Initialize(credentials, EE_URL)
+
+        if reqid == 'landsat_composites':
+          # landsat (L7) composites
+          # accepts a year, side effect map display of annual L7 cloud free composite
+          landSat = ee.Image("L7_TOA_1YEAR/" + year).select("30","20","10")
+          self.mapid = landSat.getMapId({'min':1, 'max':100})
+
         if reqid == 'l7_toa_1year_2012':
-          # The Green Forest Coverage background created by Andrew Hill
-          # example here: http://ee-api.appspot.com/#331746de9233cf1ee6a4afd043b1dd8f
-          satellite = ee.Image("L7_TOA_1YEAR_2012")
-          self.mapid = satellite.getMapId({'opacity': 1, 'bands':'30,20,10', 'min':10, 'max':120, 'gamma':"1.6"});
-        
+          self.mapid = ee.Image("L7_TOA_1YEAR_2012").getMapId(
+            {'opacity': 1, 
+             'bands':'30,20,10', 
+             'min':10, 
+             'max':120, 
+             'gamma':1.6})
+
         if reqid == 'simple_green_coverage':
           # The Green Forest Coverage background created by Andrew Hill
           # example here: http://ee-api.appspot.com/#331746de9233cf1ee6a4afd043b1dd8f
@@ -59,7 +74,7 @@ class MapInit():
           elev = ee.Image('srtm90_v4')
           mask2 = elev.gt(0).add(treeHeight.mask())
           water = ee.Image("MOD44W/MOD44W_005_2000_02_24").select(["water_mask"]).eq(0)
-          self.mapid = treeHeight.mask(mask2).mask(water).getMapId({'opacity': 1, 'min':0, 'max':50, 'palette':"dddddd,1b9567,333333"});
+          self.mapid = treeHeight.mask(mask2).mask(water).getMapId({'opacity': 1, 'min':0, 'max':50, 'palette':"dddddd,1b9567,333333"})
           
 
         if reqid == 'simple_bw_coverage':
@@ -68,53 +83,57 @@ class MapInit():
           treeHeight = ee.Image("Simard_Pinto_3DGlobalVeg_JGR")
           elev = ee.Image('srtm90_v4')
           mask2 = elev.gt(0).add(treeHeight.mask())
-          self.mapid = treeHeight.mask(mask2).getMapId({'opacity': 1, 'min':0, 'max':50, 'palette':"ffffff,777777,000000"});
+          self.mapid = treeHeight.mask(mask2).getMapId({'opacity': 1, 'min':0, 'max':50, 'palette':"ffffff,777777,000000"})
         
+
+
+        if reqid == 'masked_forest_carbon':
+          # Forest Carbon with Water Mask
+          # from: https://ee-api.appspot.com/#79a40b802e608e0e291637587cf6cd20
+          forestCarbon = ee.Image("GME/images/06900458292272798243-00415007234738980416")
+          countryMaskFC = ee.FeatureCollection('ft:1hB2c9x2YTvaZyPjyKZ_kETfiAjjmXLJWLF3Phow')
+          # self.mapid = forestCarbon.clip(countryMaskFC).getMapId({'opacity': 0.5, 'min':1, 'max':200, 'palette':"000000,00FF00"})
+          # self.mapid = forestCarbon.clip(countryMaskFC).getMapId({'opacity': 0.5, 'min':1, 'max':200, 'palette':"F7FCB9,ADDD8E,31A354"})
+          # self.mapid = forestCarbon.clip(countryMaskFC).getMapId({'opacity': 0.5, 'min':1, 'max':200, 'palette':"E0ECF4,9EBCDA,8856A7"})
+          blank = ee.Image(0);
+          # filterMask = blank.where(forestCarbon.gte(50),1)
+          # .mask(filterMask)
+          self.mapid = forestCarbon.clip(countryMaskFC).getMapId({'opacity': 0.5, 'min':1, 'max':200, 'palette':"FFFFD4,FED98E,FE9929,dd8653"})
+
         memcache.set(reqid,self.mapid,cache_time)
-        # elif reqid == 'dark_tree_height':
-        #   # The Dark Forest Height background created by Andrew Hill
-        #   ee.Initialize(credentials, EE_URL)
-        #   treeHeight = ee.Image("Simard_Pinto_3DGlobalVeg_JGR")
-        #   elev = ee.Image('srtm90_v4')
-        #   mask2 = elev.gt(0).add(treeHeight.mask())
-        #   # addToMap(treeHeight, {opacity: 0.68, min:0, max:0, palette:"171717"}, "Water");
-        #   self.mapid = treeHeight.mask(mask2).getMapId({'opacity': 0.98, 'min':0, 'max':50, 'palette':"aaaaaa,1b9567,333333"})
-        #   memcache.set(reqid,self.mapid,9000)
-
-
 
 # Depricated method, GFW will move to KeysGFW and not deliver tiles from the proxy directly
 class TilesGFW(webapp2.RequestHandler):
     def get(self, m, z, x, y):
 
-      mapid = MapInit(m.lower()).mapid
+      mapid = MapInit(m.lower(), self.request).mapid
 
       if mapid is None:
         # TODO add better error code control
         self.error(500)
       else:
         
-        cached_image = memcache.get("%s-tile-%s-%s-%s" % (m,z,x,y))
+        # cached_image = memcache.get("%s-tile-%s-%s-%s" % (m,z,x,y))
 
-        if cached_image is None:
-          result = urlfetch.fetch(url="https://earthengine.googleapis.com/map/%s/%s/%s/%s?token=%s" % (mapid['mapid'], z, x, y, mapid['token']))
-          if result.status_code == 200:
-            memcache.set("%s-tile-%s-%s-%s" % (m,z,x,y),result.content,90000)
-            self.response.headers["Content-Type"] = "image/png"
-            self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
-            self.response.out.write(result.content)
-          else:
-            self.response.set_status(result.status_code)
-        else:
+        # if cached_image is None:
+        result = urlfetch.fetch(url="https://earthengine.googleapis.com/map/%s/%s/%s/%s?token=%s" % (mapid['mapid'], z, x, y, mapid['token']))
+        if result.status_code == 200:
+          # memcache.set("%s-tile-%s-%s-%s" % (m,z,x,y),result.content,90000)
           self.response.headers["Content-Type"] = "image/png"
           self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
-          self.response.out.write(cached_image)
+          self.response.out.write(result.content)
+        else:
+          self.response.set_status(result.status_code)
+        # else:
+        #   self.response.headers["Content-Type"] = "image/png"
+        #   self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
+        #   self.response.out.write(cached_image)
 
 
 class KeysGFW(webapp2.RequestHandler):
-    def get(self, m):
+    def get(self, m, year=None):
 
-      mapid = MapInit(m.lower()).mapid
+      mapid = MapInit(m.lower(), self.request).mapid
 
       if mapid is None:
         # TODO add better error code control
