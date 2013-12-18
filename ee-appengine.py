@@ -100,6 +100,16 @@ class MapInit():
           # .mask(filterMask)
           self.mapid = forestCarbon.clip(countryMaskFC).getMapId({'opacity': 0.5, 'min':1, 'max':200, 'palette':"FFFFD4,FED98E,FE9929,dd8653"})
 
+
+
+        if reqid == 'forest_cover_2000':
+          # 2000 forest cover extent
+          # from: https://ee-api.appspot.com/#e2c8d897bf7913618ebd37cfc53b304f
+          forestCover = ee.Image("MOD44B_C4_TREE_2000")
+          continentMask = ee.FeatureCollection('ft:1tdSwUL7MVpOauSgRzqVTOwdfy17KDbw-1d9omPw')
+          self.mapid = forestCover.clip(continentMask).getMapId({'opacity': 0.5, 'min':40, 'max':75, 'palette':"FFFFFF,00FF00"})
+
+
         memcache.set(reqid,self.mapid,cache_time)
 
 # Depricated method, GFW will move to KeysGFW and not deliver tiles from the proxy directly
