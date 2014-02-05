@@ -13,6 +13,8 @@ from oauth2client.appengine import AppAssertionCredentials
 from google.appengine.api import memcache
 import urllib
 from google.appengine.api import urlfetch
+import config
+import logging
 
 jinja_environment = jinja2.Environment(
         loader=jinja2.FileSystemLoader(os.path.dirname(__file__)))
@@ -28,7 +30,7 @@ credentials = AppAssertionCredentials(scope=SCOPES)
 class MainPage(webapp2.RequestHandler):
     def get(self):
 
-      ee.Initialize(credentials, EE_URL)
+      ee.Initialize(config.EE_CREDENTIALS, config.EE_URL)
       mapid = ee.Image('srtm90_v4').getMapId({'min':0, 'max':1000})
 
 
@@ -51,7 +53,7 @@ class MapInit():
 
       cache_time = 2
       if self.mapid is None:
-        ee.Initialize(credentials, EE_URL)
+        ee.Initialize(config.EE_CREDENTIALS, config.EE_URL)
 
         if reqid == 'landsat_composites':
           # landsat (L7) composites
@@ -115,29 +117,29 @@ class MapInit():
 # Depricated method, GFW will move to KeysGFW and not deliver tiles from the proxy directly
 class TilesGFW(webapp2.RequestHandler):
     def get(self, m, z, x, y):
+        key = "%s-tile-%s-%s-%s" % (m,z,x,y)
+        cached_image = memcache.get(key)
 
-      mapid = MapInit(m.lower(), self.request).mapid
-
-      if mapid is None:
-        # TODO add better error code control
-        self.error(500)
-      else:
-        
-        # cached_image = memcache.get("%s-tile-%s-%s-%s" % (m,z,x,y))
-
-        # if cached_image is None:
-        result = urlfetch.fetch(url="https://earthengine.googleapis.com/map/%s/%s/%s/%s?token=%s" % (mapid['mapid'], z, x, y, mapid['token']))
-        if result.status_code == 200:
-          # memcache.set("%s-tile-%s-%s-%s" % (m,z,x,y),result.content,90000)
+        if cached_image is None:
+          mapid = MapInit(m.lower(), self.request).mapid
+          if mapid is None:
+            # TODO add better error code control
+            self.error(404)
+            return
+          else:
+            result = urlfetch.fetch(url="https://earthengine.googleapis.com/map/%s/%s/%s/%s?token=%s" % (mapid['mapid'], z, x, y, mapid['token']))
+          if result.status_code == 200:
+            memcache.set(key,result.content,90000)
+            self.response.headers["Content-Type"] = "image/png"
+            self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
+            self.response.out.write(result.content)
+          else:
+            self.response.set_status(result.status_code)
+        else:
+          # logging.info('CACHE HIT %s' % key)
           self.response.headers["Content-Type"] = "image/png"
           self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
-          self.response.out.write(result.content)
-        else:
-          self.response.set_status(result.status_code)
-        # else:
-        #   self.response.headers["Content-Type"] = "image/png"
-        #   self.response.headers.add_header("Expires", "Thu, 01 Dec 1994 16:00:00 GMT")
-        #   self.response.out.write(cached_image)
+          self.response.out.write(cached_image)
 
 
 class KeysGFW(webapp2.RequestHandler):
@@ -147,7 +149,7 @@ class KeysGFW(webapp2.RequestHandler):
 
       if mapid is None:
         # TODO add better error code control
-        self.error(500)
+        self.error(404)
       else:
         self.response.headers['Content-Type'] = 'application/json'
         self.response.out.write(json.dumps({
